@@ -1,0 +1,12 @@
+[package]
+name = "mhypbase"
+edition = "2024"
+version.workspace = true
+
+[lib]
+name = "mhypbase"
+crate-type = ["cdylib"]
+
+[dependencies]
+windows.workspace = true
+hkrpg.workspace = true

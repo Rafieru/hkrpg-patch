@@ -1,0 +1,9 @@
+[package]
+name = "hkrpg"
+edition = "2024"
+version.workspace = true
+
+[dependencies]
+windows.workspace = true
+ilhook.workspace = true
+patternscan.workspace = true
