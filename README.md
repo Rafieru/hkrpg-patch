@@ -1,4 +1,7 @@
-redirect HTTP requests & remove censorship!
+features:
+- redirect HTTP requests
+- remove censorship
+- replace AccountRSAKey into custom public key (by default, compatible with [hoyo-sdk by xeondev](https://git.xeondev.com/reversedrooms/hoyo-sdk))
 
 currently, this has only been tested on CNBETAWin3.1.53 and may require an update for future versions.
 

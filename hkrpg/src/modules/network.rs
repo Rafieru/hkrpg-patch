@@ -14,6 +14,7 @@ impl HkrpgModule for HkrpgModuleContext<Network> {
                 self.base.wrapping_add(config.make_initial_url),
                 Network::on_make_initial_url,
             )?;
+            println!("[network::init] network patch enabled")
         } else {
             println!("[network::init] pattern is outdated! disabling http redirection")
         }

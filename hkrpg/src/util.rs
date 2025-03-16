@@ -42,14 +42,22 @@ pub unsafe fn scan_il2cpp_section(pat: &str) -> Option<usize> {
     let mut slice = unsafe { game_assembly_slice() };
     scan_first_match(&mut slice, pat).unwrap().map(|address| {
         let slice = unsafe { game_assembly_slice() };
-        let instruction = &slice[address..address + 1][0];
-        if *instruction == 0xE8 {
-            let offset =
-                i32::from_le_bytes((&slice[address + 1..address + 1 + 4]).try_into().unwrap());
-            let pointer = offset as usize + 5 + address;
-            return GAME_ASSEMBLY_BASE.wrapping_add(pointer);
+        match slice.get(address) {
+            // jmp sub_xxxxxxx
+            Some(&0xE8) => {
+                let offset = i32::from_le_bytes(slice[address + 1..address + 5].try_into().unwrap());
+                GAME_ASSEMBLY_BASE.wrapping_add(address + 5 + offset as usize)
+            }
+            // mov rcx, [rip + offset] (0x48 0x8B 0x0D XXXXXXXX)
+            Some(&0x48)
+                if slice.get(address + 1) == Some(&0x8B)
+                    && slice.get(address + 2) == Some(&0x0D) =>
+            {
+                let offset = i32::from_le_bytes(slice[address + 3..address + 7].try_into().unwrap());
+                GAME_ASSEMBLY_BASE.wrapping_add(address + 7 + offset as usize)
+            }
+            _ => GAME_ASSEMBLY_BASE.wrapping_add(address),
         }
-        GAME_ASSEMBLY_BASE.wrapping_add(address)
     })
 }
 

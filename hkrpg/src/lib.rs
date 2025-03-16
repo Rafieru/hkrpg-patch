@@ -3,7 +3,8 @@
 use std::{thread, time::Duration};
 
 use modules::{
-    HkrpgModuleManager, censorship_patch::CensorshipPatch, hk_check::HkCheck, network::Network,
+    HkrpgModuleManager, censorship_patch::CensorshipPatch, crypto::Crypto, hk_check::HkCheck,
+    network::Network,
 };
 use windows::{
     Win32::System::{Console, LibraryLoader::GetModuleHandleA},
@@ -31,6 +32,7 @@ pub fn main() {
         let mut module_manager = HkrpgModuleManager::default();
         module_manager.add::<HkCheck>();
         module_manager.add::<Network>();
+        module_manager.add::<Crypto>();
         module_manager.add::<CensorshipPatch>();
         module_manager
             .init()

@@ -18,6 +18,7 @@ impl HkrpgModule for HkrpgModuleContext<HkCheck> {
                 self.base.wrapping_add(config.hk_check2),
                 HkCheck::replacement,
             )?;
+            println!("[hk_check::init] hk_check bypassed")
         }
         Ok(())
     }
