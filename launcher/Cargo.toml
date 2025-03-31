@@ -1,7 +1,23 @@
 [package]
-name = "launcher"
+name = "RobinSR-Launcher"
 edition = "2024"
 version.workspace = true
 
 [dependencies]
-windows.workspace = true
+toml = "0.8"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+windows = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_UI_Controls_Dialogs",
+    "Win32_UI_Controls",
+    "Win32_UI_Shell",
+    "Win32_System_Threading",
+    "Win32_Security",
+    "Win32_System_Memory",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_LibraryLoader",
+]}
+
+[build-dependencies]
+winres = "0.1"
