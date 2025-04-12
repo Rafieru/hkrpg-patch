@@ -1,5 +1,3 @@
-// Source: https://git.xeondev.com/NewEriduPubSec/JaneDoe-Patch/src/branch/master/launcher/src/main.rs
-
 use std::ffi::CString;
 use std::process::Child;
 use std::fs;
@@ -33,19 +31,19 @@ impl Config {
             .parent()
             .unwrap()
             .to_path_buf()
-            .join("launcher-config.json")
+            .join("launcher.toml")
     }
 
     fn load() -> Self {
         match fs::read_to_string(Self::get_config_path()) {
-            Ok(contents) => serde_json::from_str(&contents).unwrap_or(Config { starrail_path: None }),
+            Ok(contents) => toml::from_str(&contents).unwrap_or(Config { starrail_path: None }),
             Err(_) => Config { starrail_path: None },
         }
     }
 
     fn save(&self) -> std::io::Result<()> {
-        let json = serde_json::to_string_pretty(self)?;
-        fs::write(Self::get_config_path(), json)
+        let toml = toml::to_string_pretty(self).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        fs::write(Self::get_config_path(), toml)
     }
 }
 
@@ -134,50 +132,82 @@ struct ServerProcesses {
 
 fn run_server(exe_name: &str) -> Option<Child> {
     let current_dir = std::env::current_dir().unwrap();
-    let server_path = current_dir.join(exe_name);
     
-    if !server_path.exists() {
-        // If looking for game/sdk servers and they don't exist, try server.exe
-        if exe_name == "gameserver.exe" || exe_name == "sdkserver.exe" {
-            static mut SERVER_STARTED: bool = false;
-            unsafe {
-                if !SERVER_STARTED {
-                    let alt_server = current_dir.join("server.exe");
-                    if alt_server.exists() {
-                        println!("Using server.exe instead of gameserver.exe and sdkserver.exe");
-                        match Command::new("server.exe").spawn() {
+    // Try current directory first
+    let server_path = current_dir.join(exe_name);
+    if server_path.exists() {
+        match Command::new(exe_name).spawn() {
+            Ok(child) => {
+                println!("Started {} from current directory", exe_name);
+                return Some(child);
+            }
+            Err(e) => {
+                println!("Failed to start {}: {}", exe_name, e);
+            }
+        }
+    }
+
+    // Try target/debug and target/release
+    let target_dirs = ["target/debug", "target/release"];
+    for dir in target_dirs.iter() {
+        let target_path = current_dir.join(dir).join(exe_name);
+        if target_path.exists() {
+            match Command::new(target_path).spawn() {
+                Ok(child) => {
+                    println!("Started {} from {}", exe_name, dir);
+                    return Some(child);
+                }
+                Err(e) => {
+                    println!("Failed to start {} from {}: {}", exe_name, dir, e);
+                }
+            }
+        }
+    }
+    
+    // If looking for game/sdk servers and they don't exist, try server.exe
+    if exe_name == "gameserver.exe" || exe_name == "sdkserver.exe" {
+        static mut SERVER_STARTED: bool = false;
+        unsafe {
+            if !SERVER_STARTED {
+                // Try server.exe in current directory
+                let alt_server = current_dir.join("server.exe");
+                if alt_server.exists() {
+                    println!("Using server.exe instead of gameserver.exe and sdkserver.exe");
+                    match Command::new("server.exe").spawn() {
+                        Ok(child) => {
+                            println!("Starting RobinSR Server");
+                            SERVER_STARTED = true;
+                            return Some(child);
+                        }
+                        Err(e) => {
+                            println!("Failed to start server.exe: {}", e);
+                        }
+                    }
+                }
+
+                // Try server.exe in target directories
+                for dir in target_dirs.iter() {
+                    let target_server = current_dir.join(dir).join("server.exe");
+                    if target_server.exists() {
+                        println!("Using server.exe from {} instead of gameserver.exe and sdkserver.exe", dir);
+                        match Command::new(target_server).spawn() {
                             Ok(child) => {
-                                println!("Starting RobinSR Server");
+                                println!("Starting RobinSR Server from {}", dir);
                                 SERVER_STARTED = true;
                                 return Some(child);
                             }
                             Err(e) => {
-                                println!("Failed to start server.exe: {}", e);
-                                return None;
+                                println!("Failed to start server.exe from {}: {}", dir, e);
                             }
                         }
-                    } else {
-                        println!("No server executables found (tried server.exe, gameserver.exe and sdkserver.exe)");
-                        return None;
                     }
                 }
-                return None;
             }
         }
-        println!("{} not found", exe_name);
-        return None;
     }
 
-    match Command::new(exe_name).spawn() {
-        Ok(child) => {
-            println!("Started {}", exe_name);
-            Some(child)
-        }
-        Err(e) => {
-            println!("Failed to start {}: {}", exe_name, e);
-            None
-        }
-    }
+    println!("{} not found in current directory or target folders", exe_name);
+    None
 }
 
 fn main() {
