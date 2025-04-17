@@ -1,23 +1,35 @@
-use std::ffi::CString;
 use std::process::Child;
 use std::fs;
 use serde::{Deserialize, Serialize};
+use std::io::Write;
 
-use std::ptr::null_mut;
 use windows::Win32::Foundation::{CloseHandle, GetLastError, HANDLE};
 use windows::Win32::System::Diagnostics::Debug::WriteProcessMemory;
-use windows::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
+use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
 use windows::Win32::System::Memory::{
     MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, PAGE_READWRITE, VirtualAllocEx, VirtualFreeEx,
 };
 use windows::Win32::System::Threading::{
-    CREATE_SUSPENDED, CreateProcessA, CreateRemoteThread, PROCESS_INFORMATION, ResumeThread,
-    STARTUPINFOA, WaitForSingleObject,
+    CREATE_SUSPENDED, CreateProcessW, CreateRemoteThread, PROCESS_INFORMATION, ResumeThread,
+    STARTUPINFOW, WaitForSingleObject,
 };
-use windows::core::{PCSTR, PSTR, s};
-use windows::Win32::UI::Controls::Dialogs::{GetOpenFileNameA, OPENFILENAMEA};
+use windows::core::{PCWSTR, PWSTR, w, s};
+use windows::Win32::UI::Controls::Dialogs::{GetOpenFileNameW, OPENFILENAMEW};
 use std::path::PathBuf;
 use std::process::Command;
+use std::os::windows::ffi::OsStrExt;
+
+// Add resource handling
+#[cfg(windows)]
+extern crate winres;
+
+// Embedded binaries - only included if they exist
+#[cfg(has_robinsr_dll)]
+const ROBINSR_DLL: &[u8] = include_bytes!("../robinsr.dll");
+#[cfg(has_gameserver_exe)]
+const GAMESERVER_EXE: &[u8] = include_bytes!("../gameserver.exe");
+#[cfg(has_sdkserver_exe)]
+const SDKSERVER_EXE: &[u8] = include_bytes!("../sdkserver.exe");
 
 #[derive(Serialize, Deserialize)]
 struct Config {
@@ -49,17 +61,17 @@ impl Config {
 
 fn get_starrail_path() -> Option<PathBuf> {
     unsafe {
-        let mut buffer = [0u8; 260];
-        let mut ofn = OPENFILENAMEA::default();
-        ofn.lStructSize = std::mem::size_of::<OPENFILENAMEA>() as u32;
-        ofn.lpstrFile = PSTR(buffer.as_mut_ptr());
+        let mut buffer = [0u16; 260];
+        let mut ofn = OPENFILENAMEW::default();
+        ofn.lStructSize = std::mem::size_of::<OPENFILENAMEW>() as u32;
+        ofn.lpstrFile = PWSTR(buffer.as_mut_ptr());
         ofn.nMaxFile = buffer.len() as u32;
-        ofn.lpstrFilter = s!("Executable\0StarRail.exe\0All Files\0*.*\0\0");
-        ofn.lpstrTitle = s!("Select StarRail.exe location");
+        ofn.lpstrFilter = w!("Executable\0StarRail.exe\0All Files\0*.*\0\0");
+        ofn.lpstrTitle = w!("Select StarRail.exe location");
         ofn.Flags = windows::Win32::UI::Controls::Dialogs::OPEN_FILENAME_FLAGS(0x00000800); // OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST
 
-        if GetOpenFileNameA(&mut ofn).as_bool() {
-            let path = String::from_utf8_lossy(&buffer)
+        if GetOpenFileNameW(&mut ofn).as_bool() {
+            let path = String::from_utf16_lossy(&buffer)
                 .trim_matches(char::from(0))
                 .to_string();
             Some(PathBuf::from(path))
@@ -72,16 +84,21 @@ fn get_starrail_path() -> Option<PathBuf> {
 fn inject_standard(h_target: HANDLE, dll_path: &str) -> bool {
     unsafe {
         let loadlib = GetProcAddress(
-            GetModuleHandleA(s!("kernel32.dll")).unwrap(),
-            s!("LoadLibraryA"),
+            GetModuleHandleW(w!("kernel32.dll")).unwrap(),
+            s!("LoadLibraryW"),
         )
         .unwrap();
 
-        let dll_path_cstr = CString::new(dll_path).unwrap();
+        // Convert DLL path to wide string
+        let dll_path_wide: Vec<u16> = std::ffi::OsStr::new(dll_path)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+
         let dll_path_addr = VirtualAllocEx(
             h_target,
             None,
-            dll_path_cstr.to_bytes_with_nul().len(),
+            dll_path_wide.len() * std::mem::size_of::<u16>(),
             MEM_COMMIT | MEM_RESERVE,
             PAGE_READWRITE,
         );
@@ -96,8 +113,8 @@ fn inject_standard(h_target: HANDLE, dll_path: &str) -> bool {
         WriteProcessMemory(
             h_target,
             dll_path_addr,
-            dll_path_cstr.as_ptr() as _,
-            dll_path_cstr.to_bytes_with_nul().len(),
+            dll_path_wide.as_ptr() as _,
+            dll_path_wide.len() * std::mem::size_of::<u16>(),
             None,
         )
         .unwrap();
@@ -130,10 +147,41 @@ struct ServerProcesses {
     sdk_server: Option<Child>,
 }
 
-fn run_server(exe_name: &str) -> Option<Child> {
-    let current_dir = std::env::current_dir().unwrap();
+fn extract_embedded_binary(name: &str, data: &[u8]) -> std::io::Result<PathBuf> {
+    let temp_dir = std::env::temp_dir().join("RobinSR");
+    fs::create_dir_all(&temp_dir)?;
     
-    // Try current directory first
+    let path = temp_dir.join(name);
+    if !path.exists() {
+        let mut file = fs::File::create(&path)?;
+        file.write_all(data)?;
+    }
+    Ok(path)
+}
+
+fn run_server(exe_name: &str) -> Option<Child> {
+    #[cfg(has_gameserver_exe)]
+    if exe_name == "gameserver.exe" {
+        if let Ok(path) = extract_embedded_binary("gameserver.exe", GAMESERVER_EXE) {
+            if let Ok(child) = Command::new(path).spawn() {
+                println!("Started gameserver.exe from embedded binary");
+                return Some(child);
+            }
+        }
+    }
+
+    #[cfg(has_sdkserver_exe)]
+    if exe_name == "sdkserver.exe" {
+        if let Ok(path) = extract_embedded_binary("sdkserver.exe", SDKSERVER_EXE) {
+            if let Ok(child) = Command::new(path).spawn() {
+                println!("Started sdkserver.exe from embedded binary");
+                return Some(child);
+            }
+        }
+    }
+
+    // Try running from current directory if embedded version failed or doesn't exist
+    let current_dir = std::env::current_dir().unwrap();
     let server_path = current_dir.join(exe_name);
     if server_path.exists() {
         match Command::new(exe_name).spawn() {
@@ -147,66 +195,7 @@ fn run_server(exe_name: &str) -> Option<Child> {
         }
     }
 
-    // Try target/debug and target/release
-    let target_dirs = ["target/debug", "target/release"];
-    for dir in target_dirs.iter() {
-        let target_path = current_dir.join(dir).join(exe_name);
-        if target_path.exists() {
-            match Command::new(target_path).spawn() {
-                Ok(child) => {
-                    println!("Started {} from {}", exe_name, dir);
-                    return Some(child);
-                }
-                Err(e) => {
-                    println!("Failed to start {} from {}: {}", exe_name, dir, e);
-                }
-            }
-        }
-    }
-    
-    // If looking for game/sdk servers and they don't exist, try server.exe
-    if exe_name == "gameserver.exe" || exe_name == "sdkserver.exe" {
-        static mut SERVER_STARTED: bool = false;
-        unsafe {
-            if !SERVER_STARTED {
-                // Try server.exe in current directory
-                let alt_server = current_dir.join("server.exe");
-                if alt_server.exists() {
-                    println!("Using server.exe instead of gameserver.exe and sdkserver.exe");
-                    match Command::new("server.exe").spawn() {
-                        Ok(child) => {
-                            println!("Starting RobinSR Server");
-                            SERVER_STARTED = true;
-                            return Some(child);
-                        }
-                        Err(e) => {
-                            println!("Failed to start server.exe: {}", e);
-                        }
-                    }
-                }
-
-                // Try server.exe in target directories
-                for dir in target_dirs.iter() {
-                    let target_server = current_dir.join(dir).join("server.exe");
-                    if target_server.exists() {
-                        println!("Using server.exe from {} instead of gameserver.exe and sdkserver.exe", dir);
-                        match Command::new(target_server).spawn() {
-                            Ok(child) => {
-                                println!("Starting RobinSR Server from {}", dir);
-                                SERVER_STARTED = true;
-                                return Some(child);
-                            }
-                            Err(e) => {
-                                println!("Failed to start server.exe from {}: {}", dir, e);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    println!("{} not found in current directory or target folders", exe_name);
+    println!("{} not found, skipping...", exe_name);
     None
 }
 
@@ -220,23 +209,27 @@ fn main() {
         sdk_server: run_server("sdkserver.exe"),
     };
 
-    if server_processes.game_server.is_none() && server_processes.sdk_server.is_none() {
-        println!("Required server executables are missing");
-        println!("Press Enter to exit...");
-        let mut input = String::new();
-        std::io::stdin().read_line(&mut input).unwrap();
-        return;
-    }
-    
-    // Check for required hkrpg.dll
-    let hkrpg_path = current_dir.join("robinsr.dll");
-    if !hkrpg_path.is_file() {
-        println!("robinsr.dll not found");
-        return;
-    }
+    // Try to extract robinsr.dll if it's embedded
+    let hkrpg_path = {
+        #[cfg(has_robinsr_dll)]
+        {
+            match extract_embedded_binary("robinsr.dll", ROBINSR_DLL) {
+                Ok(path) => Some(path),
+                Err(e) => {
+                    println!("Failed to extract robinsr.dll: {}", e);
+                    None
+                }
+            }
+        }
+        #[cfg(not(has_robinsr_dll))]
+        {
+            println!("robinsr.dll not found in embedded resources");
+            None
+        }
+    };
 
     let mut proc_info = PROCESS_INFORMATION::default();
-    let startup_info = STARTUPINFOA::default();
+    let startup_info = STARTUPINFOW::default();
 
     unsafe {
         let starrail_path = if let Some(saved_path) = &config.starrail_path {
@@ -270,10 +263,16 @@ fn main() {
             }
         };
 
-        let path_str = CString::new(starrail_path.to_str().unwrap()).unwrap();
-        CreateProcessA(
-            PCSTR(path_str.as_ptr() as *const u8),
-            Some(PSTR(null_mut())),  // Wrapped in Some
+        // Convert path to wide string for CreateProcessW
+        let path_wide: Vec<u16> = starrail_path
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+
+        CreateProcessW(
+            PCWSTR(path_wide.as_ptr()),
+            None,
             None,
             None,
             false,
@@ -285,32 +284,36 @@ fn main() {
         )
         .unwrap();
 
-        // Inject required hkrpg.dll
-        if inject_standard(proc_info.hProcess, hkrpg_path.to_str().unwrap()) {
-            println!("Injected robinsr.dll successfully");
-            
-            // Try to inject optional veritas.dll if it exists
-            let veritas_path = current_dir.join("veritas.dll");
-            if veritas_path.is_file() {
-                if inject_standard(proc_info.hProcess, veritas_path.to_str().unwrap()) {
-                    println!("Injected veritas.dll successfully");
-                } else {
-                    println!("Failed to inject veritas.dll");
-                }
+        // Inject robinsr.dll if available
+        if let Some(dll_path) = hkrpg_path {
+            if inject_standard(proc_info.hProcess, dll_path.to_str().unwrap()) {
+                println!("Injected robinsr.dll successfully");
+            } else {
+                println!("Failed to inject robinsr.dll");
             }
+        }
+        
+        // Try to inject optional veritas.dll if it exists in the current directory
+        let veritas_path = current_dir.join("veritas.dll");
+        if veritas_path.is_file() {
+            if inject_standard(proc_info.hProcess, veritas_path.to_str().unwrap()) {
+                println!("Injected veritas.dll successfully");
+            } else {
+                println!("Failed to inject veritas.dll");
+            }
+        }
 
-            ResumeThread(proc_info.hThread);
-            
-            // Wait for game process to exit
-            WaitForSingleObject(proc_info.hProcess, 0xFFFFFFFF);
+        ResumeThread(proc_info.hThread);
+        
+        // Wait for game process to exit
+        WaitForSingleObject(proc_info.hProcess, 0xFFFFFFFF);
 
-            // Kill server processes
-            if let Some(mut game_server) = server_processes.game_server {
-                let _ = game_server.kill();
-            }
-            if let Some(mut sdk_server) = server_processes.sdk_server {
-                let _ = sdk_server.kill();
-            }
+        // Kill server processes
+        if let Some(mut game_server) = server_processes.game_server {
+            let _ = game_server.kill();
+        }
+        if let Some(mut sdk_server) = server_processes.sdk_server {
+            let _ = sdk_server.kill();
         }
 
         CloseHandle(proc_info.hThread).unwrap();

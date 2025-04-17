@@ -17,6 +17,7 @@ windows = { workspace = true, features = [
     "Win32_System_Diagnostics_Debug",
     "Win32_System_LibraryLoader",
 ]}
+winres = "0.1"
 
 [build-dependencies]
 winres = "0.1"
