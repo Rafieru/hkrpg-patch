@@ -164,7 +164,6 @@ fn run_server(exe_name: &str) -> Option<Child> {
     if exe_name == "gameserver.exe" {
         if let Ok(path) = extract_embedded_binary("gameserver.exe", GAMESERVER_EXE) {
             if let Ok(child) = Command::new(path).spawn() {
-                println!("Started gameserver.exe from embedded binary");
                 return Some(child);
             }
         }
@@ -174,7 +173,6 @@ fn run_server(exe_name: &str) -> Option<Child> {
     if exe_name == "sdkserver.exe" {
         if let Ok(path) = extract_embedded_binary("sdkserver.exe", SDKSERVER_EXE) {
             if let Ok(child) = Command::new(path).spawn() {
-                println!("Started sdkserver.exe from embedded binary");
                 return Some(child);
             }
         }
@@ -186,16 +184,14 @@ fn run_server(exe_name: &str) -> Option<Child> {
     if server_path.exists() {
         match Command::new(exe_name).spawn() {
             Ok(child) => {
-                println!("Started {} from current directory", exe_name);
                 return Some(child);
             }
             Err(e) => {
-                println!("Failed to start {}: {}", exe_name, e);
             }
         }
     }
 
-    println!("{} not found, skipping...", exe_name);
+    println!("Starting Server...");
     None
 }
 
@@ -210,7 +206,7 @@ fn main() {
     };
 
     // Try to extract robinsr.dll if it's embedded
-    let hkrpg_path = {
+    let hkrpg_path: Option<PathBuf> = {
         #[cfg(has_robinsr_dll)]
         {
             match extract_embedded_binary("robinsr.dll", ROBINSR_DLL) {
@@ -223,8 +219,14 @@ fn main() {
         }
         #[cfg(not(has_robinsr_dll))]
         {
-            println!("robinsr.dll not found in embedded resources");
-            None
+            let dll_path = current_dir.join("robinsr.dll");
+            if dll_path.exists() {
+                println!("Found robinsr.dll in current directory");
+                Some(dll_path)
+            } else {
+                println!("robinsr.dll not found in current directory");
+                None
+            }
         }
     };
 
@@ -287,7 +289,7 @@ fn main() {
         // Inject robinsr.dll if available
         if let Some(dll_path) = hkrpg_path {
             if inject_standard(proc_info.hProcess, dll_path.to_str().unwrap()) {
-                println!("Injected robinsr.dll successfully");
+                println!("RobinSR Started");
             } else {
                 println!("Failed to inject robinsr.dll");
             }
