@@ -148,10 +148,17 @@ struct ServerProcesses {
 }
 
 fn extract_embedded_binary(name: &str, data: &[u8]) -> std::io::Result<PathBuf> {
-    let temp_dir = std::env::temp_dir().join("RobinSR");
-    fs::create_dir_all(&temp_dir)?;
+    // Get the directory where the launcher executable is located
+    let exe_path = std::env::current_exe()?;
+    let launcher_dir = exe_path.parent().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::Other, "Could not get launcher directory")
+    })?;
     
-    let path = temp_dir.join(name);
+    // Create a hidden directory for extracted files
+    let extract_dir = launcher_dir.join(".extracted");
+    fs::create_dir_all(&extract_dir)?;
+    
+    let path = extract_dir.join(name);
     if !path.exists() {
         let mut file = fs::File::create(&path)?;
         file.write_all(data)?;
@@ -178,20 +185,35 @@ fn run_server(exe_name: &str) -> Option<Child> {
         }
     }
 
-    // Try running from current directory if embedded version failed or doesn't exist
+    // Try current directory first
     let current_dir = std::env::current_dir().unwrap();
     let server_path = current_dir.join(exe_name);
     if server_path.exists() {
         match Command::new(exe_name).spawn() {
-            Ok(child) => {
-                return Some(child);
-            }
-            Err(e) => {
-            }
+            Ok(child) => return Some(child),
+            Err(_) => {}
         }
     }
 
-    println!("Starting Server...");
+    // Try target/release directory
+    let release_path = current_dir.join("target").join("release").join(exe_name);
+    if release_path.exists() {
+        match Command::new(release_path).spawn() {
+            Ok(child) => return Some(child),
+            Err(_) => {}
+        }
+    }
+
+    // Try target/debug directory
+    let debug_path = current_dir.join("target").join("debug").join(exe_name);
+    if debug_path.exists() {
+        match Command::new(debug_path).spawn() {
+            Ok(child) => return Some(child),
+            Err(_) => {}
+        }
+    }
+
+    println!("Failed to start server: {}", exe_name);
     None
 }
 
@@ -265,8 +287,17 @@ fn main() {
             }
         };
 
-        // Convert path to wide string for CreateProcessW
+        // Get the game's directory
+        let game_dir = starrail_path.parent().unwrap();
+        
+        // Convert paths to wide strings for CreateProcessW
         let path_wide: Vec<u16> = starrail_path
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+
+        let dir_wide: Vec<u16> = game_dir
             .as_os_str()
             .encode_wide()
             .chain(std::iter::once(0))
@@ -280,7 +311,7 @@ fn main() {
             false,
             CREATE_SUSPENDED,
             None,
-            None,
+            PCWSTR(dir_wide.as_ptr()),
             &startup_info,
             &mut proc_info,
         )

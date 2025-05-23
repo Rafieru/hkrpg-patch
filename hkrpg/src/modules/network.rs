@@ -9,7 +9,7 @@ pub struct Network;
 impl HkrpgModule for HkrpgModuleContext<Network> {
     unsafe fn init(&mut self) -> Result<(), ilhook::HookError> {
         let config = rva_config();
-        if config.make_initial_url != 0 && config.ptr_to_string_ansi != 0 {
+        if config.make_initial_url != 0 && config.il2cpp_string_new_len != 0 {
             self.interceptor.attach(
                 self.base.wrapping_add(config.make_initial_url),
                 Network::on_make_initial_url,

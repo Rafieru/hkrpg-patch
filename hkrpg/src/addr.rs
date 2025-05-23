@@ -4,19 +4,19 @@ use windows::{Win32::System::LibraryLoader::GetModuleHandleA, core::s};
 
 use crate::util::scan_il2cpp_section;
 
-const PTR_TO_STRING_ANSI: &str = "E8 ? ? ? ? 48 ? ? 48 85 C0 75 ? 48 8D 4C 24";
-const MAKE_INITIAL_URL: &str = "55 41 56 56 57 53 48 83 EC ? 48 8D 6C 24 ? 48 C7 45 ? ? ? ? ? 48 89 D6 48 89 CF E8 ? ? ? ? 84 C0"; // TODO
-const SET_ELEVATION_DITHER: &str = "E9 ? ? ? ? 0F 28 74 24 ? 48 83 C4 ? 5B 5F 5E 41 5E 41 5F C3 31 F6"; // TODO
+const IL2CPP_STRING_NEW_LEN: &str = "E8 ? ? ? ? EB ? 31 C0 48 89 06 48 8B 47 ? 48 89 46 ? F2 0F 10 47";
+const MAKE_INITIAL_URL: &str = "E8 ? ? ? ? 48 89 D9 48 89 C2 E8 ? ? ? ? 48 89 D9 4C 89 FA E8 ? ? ? ? 49 89 5D"; // TODO
+const SET_ELEVATION_DITHER: &str = "56 48 83 EC ? 0F 29 74 24 ? 0F 28 F1 48 89 CE 80 3D ? ? ? ? ? 75 ? 80 7E ? ? 74 ? 0F 57 C0 F3 0F 5F C6 F3 0F 10 0D ? ? ? ? F3 0F 5D C8 F3 0F 11 4E ? F3 0F 59 4E ? 48 89 F1 41 B8 ? ? ? ? E8 ? ? ? ? 84 C0 75 ? C7 46 ? ? ? ? ? 0F 28 74 24 ? 48 83 C4 ? 5E C3 B9 ? ? ? ? E8 ? ? ? ? 48 85 C0 74 ? 48 89 C1 48 89 F2 0F 28 D6 0F 28 74 24 ? 48 83 C4 ? 5E E9 ? ? ? ? E8 ? ? ? ? CC 0F 1F 00 56 57 53"; // TODO
 const SET_DISTANCE_DITHER: &str = "E8 ? ? ? ? 49 8B 46 ? 48 85 C0 0F 84 ? ? ? ? 48 8B 4D"; // TODO
-const SET_DITHER_ALPHA: &str = "56 57 48 83 EC ? 0F 29 74 24 ? 44 89 C6 0F 28 F1 48 89 CF 80 3D ? ? ? ? ? 75 ? 80 7F"; // TODO
-const SET_DITHER_ALPHA_ANIM: &str = "56 57 55 53 48 83 EC ? 44 0F 29 44 24 ? 0F 29 7C 24 ? 0F 29 74 24 ? 44 0F 28 C3 0F 28 F2 0F 28 F9"; // TODO
-const SDK_PUBLIC_KEY_LITERAL: &str = "48 8B 0D ? ? ? ? 4C 89 FA E8 ? ? ? ? 48 89 C1 E8 ? ? ? ? 48 8B 15 ? ? ? ? 48 89 F1";
+const SET_DITHER_ALPHA: &str = "E8 ? ? ? ? 0F 28 74 24 ? 48 83 C4 ? 5B 5F 5E C3 B9 ? ? ? ? E8 ? ? ? ? 48 85 C0 0F 84 ? ? ? ? 48 89 C1 48 89 F2 E8"; // TODO
+const SET_DITHER_ALPHA_ANIM: &str = "E8 ? ? ? ? 8B 46 ? 0F 57 C0 0F 2E C6 0F 82"; // TODO
+const SDK_PUBLIC_KEY_LITERAL: &str = "48 8B 0D ? ? ? ? 4C 89 E2 E8 ? ? ? ? 48 89 C6 48 8B 0D ? ? ? ? E8 ? ? ? ? 48 89 C7 48 8B 0D";
 // const HK_CHECK1: &str = "55 41 56 56 57 53 48 81 EC 00 01 00 00 48 8D AC 24 80 00 00 00 C7 45 7C 00 00 00 00";
 // const HK_CHECK2: &str = "55 41 57 41 56 41 55 41 54 56 57 53 48 81 EC B8 02 00 00";
 
 #[derive(Default)]
 pub struct RVAConfig {
-    pub ptr_to_string_ansi: usize,
+    pub il2cpp_string_new_len: usize,
     pub make_initial_url: usize,
     pub set_elevation_dither: usize,
     pub set_distance_dither: usize,
@@ -65,13 +65,13 @@ macro_rules! set_rva {
 pub unsafe fn init_rvas() {
     let config = rva_config();
 
-    // ptr_to_string_ansi
+    // il2cpp_string_new_len
     set_rva!(
         GAME_ASSEMBLY_BASE,
         config,
-        ptr_to_string_ansi,
+        il2cpp_string_new_len,
         scan_il2cpp_section,
-        PTR_TO_STRING_ANSI,
+        IL2CPP_STRING_NEW_LEN,
         0x0
     );
 

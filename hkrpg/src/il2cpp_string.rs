@@ -15,7 +15,7 @@ impl Il2cppString {
     pub fn new(string: &str) -> Self {
         let func = unsafe {
             std::mem::transmute::<usize, fn(*const u8, usize) -> usize>(
-                *GAME_ASSEMBLY_BASE + rva_config().ptr_to_string_ansi,
+                *GAME_ASSEMBLY_BASE + rva_config().il2cpp_string_new_len,
             )
         };
         let len = string.len();

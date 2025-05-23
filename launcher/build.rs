@@ -30,5 +30,20 @@ fn main() {
         }
     }
 
+    // Check for gameserver.exe
+    if std::path::Path::new("gameserver.exe").exists() {
+        println!("cargo:rustc-cfg=has_gameserver_exe");
+    }
+
+    // Check for sdkserver.exe
+    if std::path::Path::new("sdkserver.exe").exists() {
+        println!("cargo:rustc-cfg=has_sdkserver_exe");
+    }
+
+    // Check for robinsr.dll
+    if std::path::Path::new("robinsr.dll").exists() {
+        println!("cargo:rustc-cfg=has_robinsr_dll");
+    }
+
     res.compile().unwrap();
 }
